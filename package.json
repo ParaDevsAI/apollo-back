@@ -1,0 +1,59 @@
+{
+  "name": "apollo-backend",
+  "version": "1.0.0",
+  "description": "Backend for Apollo QuestManager integration",
+  "main": "dist/index.js",
+  "scripts": {
+    "dev": "nodemon src/index.ts",
+    "build": "tsc",
+    "start": "node dist/index.js",
+    "test": "jest",
+    "lint": "eslint src/**/*.ts",
+    "lint:fix": "eslint src/**/*.ts --fix"
+  },
+  "keywords": [
+    "apollo",
+    "questmanager",
+    "soroban",
+    "stellar",
+    "blockchain"
+  ],
+  "author": "Apollo Team",
+  "license": "MIT",
+  "dependencies": {
+    "express": "^4.18.2",
+    "@stellar/stellar-sdk": "^12.0.1",
+    "cors": "^2.8.5",
+    "helmet": "^7.0.0",
+    "morgan": "^1.10.0",
+    "dotenv": "^16.3.1",
+    "jsonwebtoken": "^9.0.2",
+    "bcryptjs": "^2.4.3",
+    "express-rate-limit": "^6.8.1",
+    "express-validator": "^7.0.1",
+    "passkey-kit": "^1.0.0",
+    "@simplewebauthn/browser": "^9.0.1",
+    "@simplewebauthn/server": "^9.0.3",
+    "@simplewebauthn/types": "^9.0.1",
+    "base64url": "^3.0.1",
+    "buffer": "^6.0.3"
+  },
+  "devDependencies": {
+    "@types/express": "^4.17.17",
+    "@types/cors": "^2.8.13",
+    "@types/morgan": "^1.9.4",
+    "@types/jsonwebtoken": "^9.0.2",
+    "@types/bcryptjs": "^2.4.2",
+    "@types/node": "^20.4.5",
+    "@types/node-fetch": "^2.6.4",
+    "typescript": "^5.1.6",
+    "nodemon": "^3.0.1",
+    "ts-node": "^10.9.1",
+    "@typescript-eslint/eslint-plugin": "^6.2.0",
+    "@typescript-eslint/parser": "^6.2.0",
+    "eslint": "^8.45.0",
+    "jest": "^29.6.1",
+    "@types/jest": "^29.5.3",
+    "ts-jest": "^29.1.1"
+  }
+}
