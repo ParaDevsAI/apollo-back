@@ -83,4 +83,20 @@ router.post('/:id/distribute',
   questController.distributeRewards
 );
 
+// POST /quests/verify - Verifica se usuário completou quest (nova funcionalidade)
+router.post('/verify', [
+  body('user_address').isString().isLength({ min: 56, max: 56 })
+    .withMessage('User address must be exactly 56 characters'),
+  body('periodo').isObject()
+    .withMessage('Periodo must be an object with start_time and end_time'),
+  body('periodo.start_time').isInt({ min: 0 })
+    .withMessage('Start time must be a valid timestamp'),
+  body('periodo.end_time').isInt({ min: 0 })
+    .withMessage('End time must be a valid timestamp'),
+  body('valor').isString().isLength({ min: 1 })
+    .withMessage('Valor is required'),
+  body('token').isString().isLength({ min: 1 })
+    .withMessage('Token is required')
+], questController.verifyQuestCompletion);
+
 export default router;

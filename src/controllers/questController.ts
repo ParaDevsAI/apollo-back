@@ -253,6 +253,45 @@ export class QuestController {
       return ResponseHelper.internalError(res);
     }
   }
+
+  async verifyQuestCompletion(req: Request, res: Response): Promise<Response> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        Logger.error('Validation failed in verifyQuestCompletion', new Error(JSON.stringify(errors.array())));
+        return ResponseHelper.error(res, 'Validation failed', 400);
+      }
+
+      const { user_address, periodo, valor, token } = req.body;
+      
+      Logger.info('Verifying quest completion', {
+        user_address,
+        periodo,
+        valor,
+        token
+      });
+
+      // Importar dinamicamente a função de verificação
+      const { verificarQuest } = await import('../utils/questVerification');
+      
+      const completed = await verificarQuest(user_address, periodo, valor, token);
+
+      return ResponseHelper.success(res, {
+        user_address,
+        completed,
+        verification_timestamp: Math.floor(Date.now() / 1000),
+        details: {
+          periodo,
+          valor,
+          token
+        }
+      }, completed ? 'Quest completed successfully' : 'Quest not completed');
+
+    } catch (error) {
+      Logger.error('Error in verifyQuestCompletion controller', error as Error);
+      return ResponseHelper.internalError(res);
+    }
+  }
 }
 
 export const questController = new QuestController();
