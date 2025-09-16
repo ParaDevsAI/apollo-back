@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, Request, Response } from 'express';
 import { body, param } from 'express-validator';
 import { authController } from '../controllers/authControllerWallet';
 
@@ -16,7 +16,7 @@ router.post('/wallet/connect',
     body('userName').optional().isLength({ min: 3, max: 100 }).withMessage('User name must be between 3-100 characters'),
     body('signedMessage').optional().isString().withMessage('Signed message must be a string')
   ],
-  authController.connectWallet
+  (req: Request, res: Response) => authController.connectWallet(req, res)
 );
 
 // POST /auth/wallet/disconnect
@@ -25,7 +25,7 @@ router.post('/wallet/disconnect',
   [
     body('publicKey').notEmpty().withMessage('Public key is required')
   ],
-  authController.disconnectWallet
+  (req: Request, res: Response) => authController.disconnectWallet(req, res)
 );
 
 /**
@@ -39,7 +39,7 @@ router.post('/wallet/quest/:questId/build-register',
     param('questId').isInt({ min: 1 }).withMessage('Quest ID must be a positive integer'),
     body('publicKey').notEmpty().withMessage('Public key is required')
   ],
-  authController.buildQuestRegistrationTransaction
+  (req: Request, res: Response) => authController.buildQuestRegistrationTransaction(req, res)
 );
 
 // POST /auth/wallet/quest/:questId/register
@@ -50,7 +50,7 @@ router.post('/wallet/quest/:questId/register',
     body('signedTransactionXdr').notEmpty().withMessage('Signed transaction XDR is required'),
     body('publicKey').notEmpty().withMessage('Public key is required')
   ],
-  authController.registerForQuestWithWallet
+  (req: Request, res: Response) => authController.registerForQuestWithWallet(req, res)
 );
 
 // POST /auth/wallet/quest/:questId/build-claim
@@ -60,7 +60,7 @@ router.post('/wallet/quest/:questId/build-claim',
     param('questId').isInt({ min: 1 }).withMessage('Quest ID must be a positive integer'),
     body('publicKey').notEmpty().withMessage('Public key is required')
   ],
-  authController.buildClaimRewardsTransaction
+  (req: Request, res: Response) => authController.buildClaimRewardsTransaction(req, res)
 );
 
 // POST /auth/wallet/quest/:questId/claim-rewards
@@ -71,7 +71,7 @@ router.post('/wallet/quest/:questId/claim-rewards',
     body('signedTransactionXdr').notEmpty().withMessage('Signed transaction XDR is required'),
     body('publicKey').notEmpty().withMessage('Public key is required')
   ],
-  authController.claimRewardsWithWallet
+  (req: Request, res: Response) => authController.claimRewardsWithWallet(req, res)
 );
 
 /**
@@ -80,14 +80,14 @@ router.post('/wallet/quest/:questId/claim-rewards',
 
 // GET /auth/wallet/supported
 // Obter carteiras suportadas
-router.get('/wallet/supported', authController.getSupportedWallets);
+router.get('/wallet/supported', (req: Request, res: Response) => authController.getSupportedWallets(req, res));
 
 // GET /auth/wallet/health
 // Verificar a saúde do serviço de carteira
-router.get('/wallet/health', authController.walletServiceHealth);
+router.get('/wallet/health', (req: Request, res: Response) => authController.walletServiceHealth(req, res));
 
 // GET /auth/wallet/info
 // Obter informações sobre o serviço de carteira
-router.get('/wallet/info', authController.getWalletServiceInfo);
+router.get('/wallet/info', (req: Request, res: Response) => authController.getWalletServiceInfo(req, res));
 
 export default router;

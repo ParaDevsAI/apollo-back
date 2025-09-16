@@ -326,6 +326,117 @@ export class AuthController {
       return ResponseHelper.error(res, (error as Error).message, 500);
     }
   }
+
+  /**
+   * POST /auth/wallet/quest/:questId/verify
+   * Verificar se o usuário completou a tarefa e marcar como elegível
+   */
+  async verifyQuestCompletion(req: Request, res: Response): Promise<Response> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        return ResponseHelper.validation(res, errors.array());
+      }
+
+      const questId = parseInt(req.params.questId);
+      const { publicKey } = req.body;
+
+      // Check if user is registered first
+      const isRegistered = await this.stellarWalletService.isUserRegistered(questId, publicKey);
+      if (!isRegistered) {
+        return ResponseHelper.error(res, 'User is not registered for this quest', 400);
+      }
+
+      // Get quest info to determine verification type
+      const questInfo = await this.stellarWalletService.getQuestInfo(questId);
+      
+      // TODO: Implement actual task verification logic based on quest type
+      // For now, simulate verification
+      const isTaskCompleted = await this.verifyUserTask(questId, publicKey, questInfo.quest_type);
+
+      if (isTaskCompleted) {
+        // Mark user as eligible
+        await this.stellarWalletService.markUserEligible(questId, publicKey);
+        
+        return ResponseHelper.success(res, {
+          questId,
+          userAddress: publicKey,
+          isEligible: true,
+          taskCompleted: true,
+          timestamp: new Date().toISOString()
+        }, 'User marked as eligible for quest rewards');
+      } else {
+        return ResponseHelper.success(res, {
+          questId,
+          userAddress: publicKey,
+          isEligible: false,
+          taskCompleted: false,
+          timestamp: new Date().toISOString()
+        }, 'User has not completed the required task yet');
+      }
+
+    } catch (error: unknown) {
+      Logger.error(`Failed to verify quest completion for quest ${req.params.questId}:`, error);
+      return ResponseHelper.error(res, (error as Error).message, 500);
+    }
+  }
+
+  /**
+   * GET /auth/wallet/quest/:questId/status
+   * Verificar o status do usuário em uma quest específica
+   */
+  async getQuestStatus(req: Request, res: Response): Promise<Response> {
+    try {
+      const questId = parseInt(req.params.questId);
+      const { publicKey } = req.query;
+
+      if (!publicKey || typeof publicKey !== 'string') {
+        return ResponseHelper.error(res, 'publicKey is required as query parameter', 400);
+      }
+
+      const [questInfo, isRegistered, isWinner] = await Promise.all([
+        this.stellarWalletService.getQuestInfo(questId),
+        this.stellarWalletService.isUserRegistered(questId, publicKey),
+        this.stellarWalletService.checkIfUserIsWinner(questId, publicKey)
+      ]);
+
+      return ResponseHelper.success(res, {
+        questId,
+        userAddress: publicKey,
+        questInfo,
+        isRegistered,
+        isWinner,
+        canClaim: isWinner && !questInfo.is_active, // Can claim if winner and quest is resolved
+        timestamp: new Date().toISOString()
+      }, 'Quest status retrieved successfully');
+
+    } catch (error: unknown) {
+      Logger.error(`Failed to get quest status for quest ${req.params.questId}:`, error);
+      return ResponseHelper.error(res, (error as Error).message, 500);
+    }
+  }
+
+  /**
+   * Private helper method to verify user task completion
+   */
+  private async verifyUserTask(questId: number, userAddress: string, questType: any): Promise<boolean> {
+    try {
+      // TODO: Implement actual verification logic based on quest type
+      // For now, simulate task verification
+      
+      Logger.info(`Verifying task for quest ${questId}, user ${userAddress}, type:`, questType);
+      
+      // Simulate verification - in real implementation:
+      // - For TradeVolume: Check DEX APIs for trading history
+      // - For PoolPosition: Check pool contract for user's position  
+      // - For TokenHold: Check token balance via Horizon API
+      
+      return true; // Simulate successful verification
+    } catch (error: any) {
+      Logger.error('Task verification failed:', error);
+      return false;
+    }
+  }
 }
 
 export const authController = new AuthController();
