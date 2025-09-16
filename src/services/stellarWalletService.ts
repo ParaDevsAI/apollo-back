@@ -5,7 +5,7 @@ import * as StellarSdk from '@stellar/stellar-sdk';
 
 class StellarWalletService {
   private readonly server: StellarSdk.Horizon.Server;
-  private readonly sorobanServer: any;
+  private readonly sorobanServer: StellarSdk.rpc.Server;
   private readonly networkPassphrase: string;
   private readonly isTestnet: boolean;
   private readonly contractAddress: string;
@@ -19,15 +19,7 @@ class StellarWalletService {
     this.server = new StellarSdk.Horizon.Server('https://horizon-testnet.stellar.org');
     
     // Initialize Soroban RPC server for smart contract calls
-    this.sorobanServer = {
-      url: rpcUrl,
-      simulate: async (transaction: any) => {
-        // For now, we'll use HTTP fetch to call the RPC directly
-        // This is a simplified implementation for development
-        Logger.info('Soroban RPC call simulation - using fallback implementation');
-        throw new Error('Direct RPC calls not implemented, using mock data');
-      }
-    };
+    this.sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
     
     this.contractAddress = config.contractId || '';
     if (!this.contractAddress) {
@@ -53,32 +45,175 @@ class StellarWalletService {
 
   async validateSignedTransaction(signedXdr: string): Promise<boolean> {
     try {
+      Logger.info('Validating signed transaction XDR', {
+        xdrLength: signedXdr?.length,
+        xdrPreview: signedXdr?.substring(0, 100) + '...',
+        networkPassphrase: this.networkPassphrase
+      });
+
       const transaction = StellarSdk.TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase);
-      return transaction.signatures.length > 0;
+      
+      const validationResult = {
+        hasSignatures: transaction.signatures.length > 0,
+        signatureCount: transaction.signatures.length,
+        operationCount: transaction.operations?.length || 0,
+        fee: transaction.fee,
+        source: (transaction as any).source || 'unknown'
+      };
+
+      Logger.info('Transaction validation result', validationResult);
+      
+      if (!validationResult.hasSignatures) {
+        Logger.warn('Transaction has no signatures - validation failed');
+      }
+
+      return validationResult.hasSignatures;
     } catch (error: any) {
-      Logger.error('Transaction validation failed:', error);
+      Logger.error('Transaction validation failed', error);
+      Logger.info('Failed XDR details', {
+        xdrLength: signedXdr?.length,
+        xdrType: typeof signedXdr,
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message
+      });
       return false;
     }
   }
 
   async submitSignedTransaction(signedXdr: string): Promise<WalletTransactionResult> {
     try {
+      Logger.info('Submitting signed transaction to Stellar network', {
+        xdrLength: signedXdr?.length,
+        networkPassphrase: this.networkPassphrase
+      });
+
       const transaction = StellarSdk.TransactionBuilder.fromXDR(signedXdr, this.networkPassphrase);
-      const result = await this.server.submitTransaction(transaction);
       
-      return {
-        success: true,
-        hash: result.hash,
-        createdAt: new Date()
-      };
+      Logger.info('Transaction parsed successfully', {
+        signatureCount: transaction.signatures.length,
+        operationCount: transaction.operations?.length || 0,
+        fee: transaction.fee
+      });
+
+      // Check if this is a Soroban transaction (has invoke host function operations)
+      const hasSorobanOps = transaction.operations.some(op => 
+        op.type === 'invokeHostFunction'
+      );
+
+      let result;
+      
+      if (hasSorobanOps) {
+        // Use Soroban RPC for smart contract transactions
+        const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+        const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+        
+        Logger.info('Submitting Soroban transaction via RPC', {
+          rpcUrl,
+          operationType: 'invokeHostFunction'
+        });
+        
+        result = await sorobanServer.sendTransaction(transaction);
+        
+        Logger.info('Soroban transaction response', {
+          status: result.status,
+          hash: result.hash,
+          errorResult: result.errorResult,
+          fullResponse: result
+        });
+        
+        if (result.status === 'PENDING') {
+          Logger.info('Soroban transaction submitted, waiting for confirmation', {
+            hash: result.hash,
+            status: result.status
+          });
+          
+          // Wait for transaction confirmation
+          let attempts = 0;
+          const maxAttempts = 15;
+          
+          while (attempts < maxAttempts) {
+            await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
+            
+            try {
+              const txResult = await sorobanServer.getTransaction(result.hash);
+              Logger.info(`Transaction check attempt ${attempts + 1}`, {
+                status: txResult.status,
+                hash: result.hash
+              });
+              
+              if (txResult.status === 'SUCCESS') {
+                Logger.info('Soroban transaction confirmed successfully', {
+                  hash: result.hash,
+                  status: txResult.status
+                });
+                
+                return {
+                  success: true,
+                  hash: result.hash,
+                  createdAt: new Date()
+                };
+              } else if (txResult.status === 'FAILED') {
+                const errorDetails = txResult.resultXdr || 'Transaction failed';
+                throw new Error(`Soroban transaction failed after confirmation: ${errorDetails}`);
+              }
+              
+              attempts++;
+            } catch (error) {
+              Logger.warn(`Error checking transaction status: ${error}`);
+              attempts++;
+            }
+          }
+          
+          throw new Error('Transaction timeout - unable to confirm within expected time');
+        } else {
+          const errorDetails = result.errorResult ? JSON.stringify(result.errorResult) : 'No error details available';
+          throw new Error(`Soroban transaction failed with status: ${result.status}, details: ${errorDetails}`);
+        }
+      } else {
+        // Use Horizon for regular Stellar transactions
+        Logger.info('Submitting regular transaction via Horizon');
+        result = await this.server.submitTransaction(transaction);
+        
+        Logger.info('Transaction submitted successfully to Stellar network', {
+          hash: result.hash,
+          ledger: result.ledger,
+          successful: result.successful
+        });
+        
+        return {
+          success: true,
+          hash: result.hash,
+          createdAt: new Date()
+        };
+      }
     } catch (error: any) {
+      Logger.error('Transaction submission failed', error);
+      Logger.info('Failed transaction details', {
+        xdrLength: signedXdr?.length,
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message,
+        errorCode: error?.response?.status,
+        errorData: error?.response?.data
+      });
       throw new Error(`Transaction submission failed: ${error.message}`);
     }
   }
 
   async buildQuestRegistrationTransaction(userAddress: string, questId: number): Promise<string> {
     try {
+      Logger.info('Building quest registration transaction', {
+        userAddress,
+        questId,
+        contractAddress: this.contractAddress,
+        networkPassphrase: this.networkPassphrase
+      });
+
       const account = await this.server.loadAccount(userAddress);
+      Logger.info('User account loaded successfully', {
+        accountId: account.accountId(),
+        sequenceNumber: account.sequenceNumber()
+      });
+
       const contract = new StellarSdk.Contract(this.contractAddress);
       
       // Build operation to call contract.register(quest_id, user_address)  
@@ -90,7 +225,8 @@ class StellarWalletService {
         ]
       );
 
-      const transaction = new StellarSdk.TransactionBuilder(account, {
+      // Build initial transaction for simulation
+      const initialTransaction = new StellarSdk.TransactionBuilder(account, {
         fee: StellarSdk.BASE_FEE,
         networkPassphrase: this.networkPassphrase,
       })
@@ -98,10 +234,52 @@ class StellarWalletService {
         .setTimeout(300)
         .build();
 
-      Logger.info(`Built quest registration transaction for user ${userAddress} and quest ${questId}`);
-      return transaction.toXDR();
+      // Simulate transaction to get required resources
+      const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      
+      Logger.info('Simulating Soroban transaction for resources', {
+        rpcUrl,
+        operationType: 'invokeHostFunction'
+      });
+      
+      const simulation = await sorobanServer.simulateTransaction(initialTransaction);
+      
+      if (StellarSdk.rpc.Api.isSimulationError(simulation)) {
+        Logger.error('Simulation failed: ' + simulation.error);
+        throw new Error(`Transaction simulation failed: ${simulation.error}`);
+      }
+
+      Logger.info('Simulation successful', {
+        minResourceFee: simulation.minResourceFee
+      });
+
+      // Build final transaction with simulation results
+      const assembledTransaction = StellarSdk.rpc.assembleTransaction(
+        initialTransaction,
+        simulation
+      ).build();
+
+      const xdr = assembledTransaction.toXDR();
+      Logger.info('Quest registration transaction built successfully', {
+        userAddress,
+        questId,
+        xdrLength: xdr.length,
+        operationCount: assembledTransaction.operations.length,
+        fee: assembledTransaction.fee,
+        resourceFee: simulation.minResourceFee
+      });
+      
+      return xdr;
     } catch (error: any) {
-      Logger.error('Failed to build quest registration transaction:', error);
+      Logger.error('Failed to build quest registration transaction', error);
+      Logger.info('Build transaction error details', {
+        userAddress,
+        questId,
+        contractAddress: this.contractAddress,
+        errorType: error?.constructor?.name,
+        errorMessage: error?.message
+      });
       throw new Error(`Failed to build transaction: ${error.message}`);
     }
   }
@@ -258,7 +436,7 @@ class StellarWalletService {
     }
     
     if (typeof obj === 'bigint') {
-      return obj.toString();
+      return Number(obj.toString()); // Convert to Number for better frontend handling
     }
     
     if (Array.isArray(obj)) {
@@ -268,7 +446,13 @@ class StellarWalletService {
     if (typeof obj === 'object') {
       const serialized: any = {};
       for (const [key, value] of Object.entries(obj)) {
-        serialized[key] = this.serializeBigIntForJson(value);
+        try {
+          serialized[key] = this.serializeBigIntForJson(value);
+        } catch (error) {
+          // If serialization fails, convert to string as fallback
+          Logger.warn(`Failed to serialize key ${key}, using string fallback`, error);
+          serialized[key] = typeof value === 'bigint' ? value.toString() : String(value);
+        }
       }
       return serialized;
     }
@@ -277,133 +461,32 @@ class StellarWalletService {
   }
 
   /**
-   * Token symbol mapping for known Stellar assets
-   */
-  private getTokenSymbol(contractOrAsset: string): string {
-    const tokenMap: Record<string, string> = {
-      // Native Stellar
-      'native': 'XLM',
-      'XLM': 'XLM',
-      
-      // Common Stellar tokens (by contract address)
-      'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQAOBKXN7FRZZ': 'USDC',
-      'CB64D3G7SM2RTH6JSGG34DDTFTQ5CFDKVDZJZSODMCX4NJ2DA2KPP2GT': 'USDT', 
-      'CDCLZROJYSA74I3N2QEGEW4XEWIY4KRZWHJJNIF2CEMEYCSM4H5CNCXD': 'XLM', // Quest contract using XLM
-      
-      // Default fallback
-      'default': 'TOKEN'
-    };
-    
-    return tokenMap[contractOrAsset] || tokenMap['default'];
-  }
-
-  /**
-   * Enhanced retry mechanism with exponential backoff
-   */
-  private async retryOperation<T>(
-    operation: () => Promise<T>, 
-    maxRetries: number = 5, 
-    baseDelayMs: number = 1000
-  ): Promise<T> {
-    let lastError: Error | null = null;
-    
-    for (let attempt = 1; attempt <= maxRetries; attempt++) {
-      try {
-        Logger.debug(`Network operation attempt ${attempt}/${maxRetries}`);
-        return await operation();
-      } catch (error: any) {
-        lastError = error instanceof Error ? error : new Error(String(error));
-        
-        if (attempt === maxRetries) {
-          Logger.error(`All ${maxRetries} attempts failed`);
-          break;
-        }
-        
-        // Check if it's a recoverable network error
-        const isNetworkError = error.message?.includes('ECONNRESET') || 
-                              error.message?.includes('ENOTFOUND') || 
-                              error.message?.includes('ETIMEDOUT') ||
-                              error.message?.includes('timeout') ||
-                              error.message?.includes('ECONNREFUSED');
-        
-        if (isNetworkError) {
-          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
-          const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
-          
-          Logger.warn(`Network error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms...`, {
-            error: error.message,
-            errorCode: error.code
-          });
-          
-          await new Promise(resolve => setTimeout(resolve, delayMs));
-        } else {
-          // Non-recoverable error, don't retry
-          Logger.error('Non-recoverable error, not retrying:', error.message);
-          throw error;
-        }
-      }
-    }
-    
-    throw lastError || new Error('Network operation failed after all retries');
-  }
-
-  /**
-   * Get all active quests with improved network connectivity
+   * Get all active quests
    */
   async getActiveQuests(): Promise<any[]> {
     try {
-      Logger.info('Attempting to fetch active quests from smart contract...');
-      
-      const result = await this.retryOperation(
-        () => this.simulateContractCall('get_active_quests', []),
-        5, // Increased retries
-        2000 // Increased delay
-      );
+      const result = await this.simulateContractCall('get_active_quests', []);
       
       // Convert ScVal to native with special handling for BigInt values
       const quests = this.convertScValToNativeWithBigIntHandling(result);
       
       // Ensure all BigInt values are serializable as strings
-      let serializableQuests = this.serializeBigIntForJson(quests);
+      const serializableQuests = this.serializeBigIntForJson(quests);
       
-      // Enhance quest data with token symbols
-      if (Array.isArray(serializableQuests)) {
-        serializableQuests = serializableQuests.map((quest: any) => {
-          const tokenSymbol = this.getTokenSymbol(quest.reward_token || 'native');
-          
-          return {
-            ...quest,
-            reward_token: tokenSymbol,
-            title: quest.title || `Quest #${quest.id}`,
-            description: quest.description || `Complete this quest to earn rewards`,
-            end_timestamp: quest.end_timestamp
-          };
-        });
-      }
-      
-      Logger.info(`Successfully retrieved ${Array.isArray(serializableQuests) ? serializableQuests.length : 0} active quests from smart contract`);
+      Logger.info(`Retrieved ${Array.isArray(serializableQuests) ? serializableQuests.length : 0} active quests from smart contract`);
       return Array.isArray(serializableQuests) ? serializableQuests : [];
-      
     } catch (error: any) {
       Logger.error('Failed to get active quests from smart contract:', error);
       
-      // Detailed network error analysis
-      if (error.message?.includes('ECONNRESET')) {
-        Logger.error('Network connection reset - Stellar RPC server may be under heavy load');
-        Logger.error('Try again in a few moments or check network connectivity');
-      } else if (error.message?.includes('ENOTFOUND')) {
-        Logger.error('DNS resolution failed - check network connectivity');
-      } else if (error.message?.includes('timeout')) {
-        Logger.error('Request timed out - Stellar RPC server may be slow');
-      } else if (error.message?.includes('BigInt')) {
-        Logger.error('Data conversion error - contract returned valid data but conversion failed');
-      } else {
-        Logger.error('Unexpected error type:', error.message);
+      // If it's a BigInt serialization error, log it specifically
+      if (error.message?.includes('BigInt')) {
+        Logger.error('BigInt conversion error - this is a known issue with Stellar SDK ScVal conversion');
+        Logger.error('Raw contract response was successful but conversion failed');
       }
       
-      Logger.warn('Unable to fetch quest data from smart contract - returning empty list');
+      Logger.warn('Returning empty quest list due to contract call failure');
       
-      // Return empty array to allow frontend to handle gracefully
+      // Return empty array instead of throwing error to allow frontend to handle gracefully
       return [];
     }
   }
@@ -457,13 +540,55 @@ class StellarWalletService {
         return scVal._value ? Buffer.from(scVal._value.data).toString('utf8') : '';
       
       case 'scvU64':
-        return scVal._value?._value ? parseInt(scVal._value._value) : 0;
+        try {
+          const v: any = scVal._value ?? scVal;
+
+          // shape: { _value: '14' }
+          if (typeof v === 'string') return Number(v);
+
+          // shape: { _value: { _value: '14' } }
+          if (v._value && typeof v._value === 'string') return Number(v._value);
+          if (v._value && v._value._value) return Number(v._value._value);
+
+          // shape with attributes: { _attributes: { lo: { _value: '14' } } }
+          if (v._attributes && v._attributes.lo && v._attributes.lo._value) {
+            return Number(v._attributes.lo._value);
+          }
+
+          // numeric fallback
+          const asNumber = Number(JSON.stringify(v).replace(/[^0-9]/g, ''));
+          if (!Number.isNaN(asNumber)) return asNumber;
+        } catch (e) {
+          Logger.warn('scvU64 parsing fallback triggered', e);
+        }
+
+        return 0;
       
       case 'scvU128':
-        // Convert BigInt to number (be careful with large values)
-        const hi = scVal._value?._attributes?.hi?._value || '0';
-        const lo = scVal._value?._attributes?.lo?._value || '0';
-        return parseInt(lo); // For now, just use the low part
+        try {
+          const attrs = scVal._value?._attributes ?? scVal._attributes ?? {};
+          const hiRaw = attrs.hi?._value ?? attrs.hi ?? '0';
+          const loRaw = attrs.lo?._value ?? attrs.lo ?? '0';
+
+          const hi = BigInt((hiRaw && typeof hiRaw === 'string') ? hiRaw : (hiRaw._value ?? '0'));
+          const lo = BigInt((loRaw && typeof loRaw === 'string') ? loRaw : (loRaw._value ?? '0'));
+
+          // Combine hi/lo into a BigInt and convert to Number when safe
+          const combined = (hi << BigInt(64)) + lo;
+          const num = Number(combined);
+          if (!Number.isNaN(num) && Number.isFinite(num)) return num;
+        } catch (e) {
+          Logger.warn('scvU128 parsing fallback triggered', e);
+        }
+
+        // Fallback: try to extract numeric characters
+        try {
+          const text = JSON.stringify(scVal);
+          const digits = text.replace(/[^0-9]/g, '');
+          return digits ? Number(digits) : 0;
+        } catch {
+          return 0;
+        }
       
       case 'scvU32':
         return scVal._value || 0;
@@ -518,10 +643,10 @@ class StellarWalletService {
         .build();
 
       transaction.sign(this.adminKeypair);
-      const result = await this.server.submitTransaction(transaction);
+      const result = await this.sorobanServer.sendTransaction(transaction);
       
       Logger.info(`Marked user ${userAddress} as eligible for quest ${questId}`);
-      return result.successful;
+      return result.status === 'PENDING';
     } catch (error: any) {
       Logger.error('Failed to mark user as eligible:', error);
       throw new Error(`Failed to mark user as eligible: ${error.message}`);
@@ -591,21 +716,12 @@ class StellarWalletService {
         .build();
 
       // For Soroban contract calls, we need to use the RPC server
-      // Create a proper Soroban RPC server instance with timeout configuration
+      // Create a proper Soroban RPC server instance
       const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
-      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, {
-        allowHttp: rpcUrl.includes('localhost') || rpcUrl.includes('127.0.0.1'),
-      });
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
       
-      Logger.debug(`Making contract call to: ${rpcUrl}`);
-      
-      // Simulate the transaction with timeout handling (read-only call)
-      const response = await Promise.race([
-        sorobanServer.simulateTransaction(transaction),
-        new Promise((_, reject) => 
-          setTimeout(() => reject(new Error('Contract call timeout after 10 seconds')), 10000)
-        )
-      ]) as any;
+      // Simulate the transaction (read-only call)
+      const response = await sorobanServer.simulateTransaction(transaction);
       
       // Check if simulation was successful
       if (StellarSdk.rpc.Api.isSimulationError(response)) {

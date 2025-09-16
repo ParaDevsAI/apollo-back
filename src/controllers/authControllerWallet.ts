@@ -103,9 +103,21 @@ export class AuthController {
    */
   async buildQuestRegistrationTransaction(req: Request, res: Response): Promise<Response> {
     try {
+      // Log incoming request data for debugging
+      Logger.info('Incoming build-register request', {
+        params: req.params,
+        body: req.body,
+        headers: {
+          origin: req.headers.origin,
+          host: req.headers.host,
+          'user-agent': req.headers['user-agent']
+        }
+      });
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return ResponseHelper.error(res, 'Validation failed', 400);
+        // Return validation details to help frontend debugging
+  const details = errors.array().map((e: any) => ({ param: e.param, msg: e.msg }));
+        return res.status(400).json({ success: false, error: 'Validation failed', details, timestamp: new Date().toISOString() });
       }
 
       const questId = Number(req.params.questId);
@@ -143,9 +155,22 @@ export class AuthController {
    */
   async registerForQuestWithWallet(req: Request, res: Response): Promise<Response> {
     try {
+      // Log incoming request data for debugging
+      Logger.info('Incoming register request', {
+        params: req.params,
+        body: req.body,
+        headers: {
+          origin: req.headers.origin,
+          host: req.headers.host,
+          'user-agent': req.headers['user-agent']
+        }
+      });
+
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return ResponseHelper.error(res, 'Validation failed', 400);
+        const details = errors.array().map((e: any) => ({ param: e.param, msg: e.msg }));
+        Logger.warn('Validation failed for registerForQuestWithWallet', { details });
+        return res.status(400).json({ success: false, error: 'Validation failed', details, timestamp: new Date().toISOString() });
       }
 
       const questId = Number(req.params.questId);
@@ -187,6 +212,16 @@ export class AuthController {
    */
   async buildClaimRewardsTransaction(req: Request, res: Response): Promise<Response> {
     try {
+      // Log incoming request data for debugging
+      Logger.info('Incoming build-claim request', {
+        params: req.params,
+        body: req.body,
+        headers: {
+          origin: req.headers.origin,
+          host: req.headers.host,
+          'user-agent': req.headers['user-agent']
+        }
+      });
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
         return ResponseHelper.error(res, 'Validation failed', 400);
@@ -387,6 +422,25 @@ export class AuthController {
    */
   async getQuestStatus(req: Request, res: Response): Promise<Response> {
     try {
+      // Log incoming request for debugging
+      Logger.info('Incoming get-quest-status request', {
+        params: req.params,
+        query: req.query,
+        headers: {
+          origin: req.headers.origin,
+          host: req.headers.host,
+          'user-agent': req.headers['user-agent']
+        }
+      });
+
+      // Validate params (express-validator middleware may have added errors)
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        const details = errors.array().map((e: any) => ({ param: e.param, msg: e.msg }));
+        Logger.warn('Validation failed for getQuestStatus', { details });
+        return res.status(400).json({ success: false, error: 'Validation failed', details, timestamp: new Date().toISOString() });
+      }
+
       const questId = parseInt(req.params.questId);
       const { publicKey } = req.query;
 
@@ -411,8 +465,10 @@ export class AuthController {
       }, 'Quest status retrieved successfully');
 
     } catch (error: unknown) {
-      Logger.error(`Failed to get quest status for quest ${req.params.questId}`);
-      return ResponseHelper.error(res, (error as Error).message, 500);
+      Logger.error(`Failed to get quest status for quest ${req.params.questId}`, (error as Error));
+      // If questId appears invalid or zero, return clear message to help debugging
+      const msg = (error as Error).message || 'Unknown server error';
+      return ResponseHelper.error(res, `Failed to get quest status: ${msg}`, 500);
     }
   }
 

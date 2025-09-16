@@ -12,11 +12,6 @@ export const config = {
     contractId: process.env.CONTRACT_ID || '',
     networkPassphrase: process.env.NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
     rpcUrl: process.env.RPC_URL || 'https://soroban-testnet.stellar.org:443',
-    rpcUrls: [
-      'https://soroban-testnet.stellar.org:443',
-      'https://rpc-futurenet.stellar.org:443',
-      'https://horizon-testnet.stellar.org', // Horizon as fallback
-    ],
     appName: process.env.STELLAR_APP_NAME || 'Apollo Quest Manager',
     walletConnect: {
       projectId: process.env.WALLET_CONNECT_PROJECT_ID || '',

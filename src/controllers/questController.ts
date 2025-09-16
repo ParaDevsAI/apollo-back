@@ -12,6 +12,7 @@ import {
 } from '../models';
 import { Quest } from '../models/quest';
 import { validationResult } from 'express-validator';
+import { log } from 'node:console';
 
 export class QuestController {
   async createQuest(req: AuthenticatedRequest, res: Response): Promise<Response> {
@@ -45,7 +46,7 @@ export class QuestController {
     try {
       const filters = req.query as QuestFilters;
       Logger.debug('Getting quests', { filters });
-
+      console.log('Getting quests', { filters });
       const result = await questService.getActiveQuests();
 
 
