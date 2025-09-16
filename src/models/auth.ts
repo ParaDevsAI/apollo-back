@@ -83,3 +83,72 @@ export interface PasskeyTransactionRequest {
   keyId?: string;
   rpId?: string;
 }
+
+// -----------------------------------------
+// Stellar Wallets Kit models
+// -----------------------------------------
+
+/**
+ * Tipos de carteira suportados pelo Stellar Wallets Kit
+ */
+export enum WalletType {
+  ALBEDO = 'albedo',
+  FREIGHTER = 'freighter',
+  XBULL = 'xbull',
+  RABET = 'rabet',
+  WALLET_CONNECT = 'walletconnect',
+  LEDGER = 'ledger',
+  TREZOR = 'trezor',
+  PRIVATE_KEY = 'privatekey',
+  PASSKEY = 'passkey'
+}
+
+/**
+ * Parâmetros para conexão com carteira
+ */
+export interface StellarWalletConnection {
+  walletType: WalletType;
+  userName?: string;
+  params?: Record<string, any>;
+}
+
+/**
+ * Informações da carteira conectada
+ */
+export interface StellarWallet {
+  publicKey: string;
+  type: WalletType;
+  network: string;
+}
+
+/**
+ * Usuário autenticado com carteira Stellar
+ */
+export interface WalletUser {
+  id: string;
+  userName?: string;
+  publicKey: string;
+  walletType: WalletType;
+  connectedAt: Date;
+}
+
+/**
+ * Resultado da autenticação com carteira
+ */
+export interface WalletAuthResult {
+  success: boolean;
+  user: WalletUser;
+  wallet: StellarWallet;
+  error?: string;
+}
+
+/**
+ * Resultado de uma transação com carteira
+ */
+export interface WalletTransactionResult {
+  success: boolean;
+  hash?: string;
+  ledger?: number;
+  createdAt?: Date;
+  error?: string;
+}

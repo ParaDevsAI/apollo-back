@@ -12,6 +12,16 @@ export const config = {
     contractId: process.env.CONTRACT_ID || '',
     networkPassphrase: process.env.NETWORK_PASSPHRASE || 'Test SDF Network ; September 2015',
     rpcUrl: process.env.RPC_URL || 'https://soroban-testnet.stellar.org:443',
+    appName: process.env.STELLAR_APP_NAME || 'Apollo Quest Manager',
+    walletConnect: {
+      projectId: process.env.WALLET_CONNECT_PROJECT_ID || '',
+      metadata: {
+        name: process.env.WALLET_CONNECT_NAME || 'Apollo Quest Manager',
+        description: process.env.WALLET_CONNECT_DESCRIPTION || 'Manage quests on the Stellar network',
+        url: process.env.WALLET_CONNECT_URL || 'https://apollo-quests.io',
+        icons: [(process.env.WALLET_CONNECT_ICON || 'https://apollo-quests.io/icon.png').split(',')]
+      }
+    }
   },
   
   // Legacy config (keep for compatibility)
@@ -37,7 +47,7 @@ export const config = {
   // CORS
   corsOrigin: process.env.CORS_ORIGIN || '*',
 
-  // Kale Passkey-Kit Configuration
+  // Kale Passkey-Kit Configuration (deprecated)
   kale: {
     walletWasmHash: process.env.KALE_WALLET_WASM_HASH || '',
     timeoutInSeconds: parseInt(process.env.KALE_TIMEOUT_SECONDS || '30'),

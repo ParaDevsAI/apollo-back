@@ -1,13 +1,13 @@
-import { Keypair, Contract, SorobanRpc, Networks } from '@stellar/stellar-sdk';
+import { Keypair, Contract, rpc, Networks } from '@stellar/stellar-sdk';
 import config from './index';
 
 export class SorobanClient {
   private contract: Contract;
-  private server: SorobanRpc.Server;
+  private server: rpc.Server;
   private adminKeypair: Keypair;
 
   constructor() {
-    this.server = new SorobanRpc.Server(config.rpcUrl);
+    this.server = new rpc.Server(config.rpcUrl);
     this.contract = new Contract(config.contractId);
     
     if (config.adminSecret) {
@@ -21,7 +21,7 @@ export class SorobanClient {
     return this.contract;
   }
 
-  getServer(): SorobanRpc.Server {
+  getServer(): rpc.Server {
     return this.server;
   }
 

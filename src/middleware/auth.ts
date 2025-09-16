@@ -3,7 +3,6 @@ import { AuthHelper } from '../utils/auth';
 import { ResponseHelper } from '../utils/response';
 import { Logger } from '../utils/logger';
 import { AuthenticatedRequest } from '../models';
-import { mercuryAuthService } from '../services';
 
 export const authMiddleware = (req: AuthenticatedRequest, res: Response, next: NextFunction): void => {
   try {
@@ -53,33 +52,20 @@ export const passkeyMiddleware = async (req: AuthenticatedRequest, res: Response
       return;
     }
 
-    // Verificar se é autenticação via passkey
+    // Verify passkey authentication
     if (req.user.authMethod !== 'passkey') {
       ResponseHelper.forbidden(res, 'Passkey authentication required for this endpoint');
       return;
     }
 
-    // Validar sessão Zephyr se presente
-    if (req.user.sessionId) {
-      const sessionValidation = await mercuryAuthService.validateZephyrSession(req.user.sessionId);
-      
-      if (!sessionValidation.valid) {
-        ResponseHelper.unauthorized(res, 'Zephyr session expired or invalid');
-        return;
-      }
-
-      // Adicionar informações da sessão ao request
-      (req as any).zephyrSession = sessionValidation.session;
-      
-      Logger.debug('Passkey authentication and Zephyr session validated', { 
-        address: req.user.address,
-        sessionId: req.user.sessionId 
-      });
-    }
+    Logger.debug('Passkey authentication validated', { 
+      address: req.user.address,
+      contractAddress: req.user.contractAddress
+    });
 
     next();
   } catch (error) {
-    Logger.error('Passkey middleware failed', error as Error);
+    Logger.error('Passkey middleware failed');
     ResponseHelper.unauthorized(res, 'Passkey authentication validation failed');
   }
 };

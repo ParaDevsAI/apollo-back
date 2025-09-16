@@ -23,7 +23,7 @@ export class UserService {
       const activeQuestsResult = await questService.getActiveQuests();
       if (activeQuestsResult.success && activeQuestsResult.result) {
         // Filter quests where user is a participant
-        stats.active_quests = activeQuestsResult.result.filter(quest => 
+        stats.active_quests = activeQuestsResult.result.filter((quest: any) => 
           // In real implementation, check if user is participant
           true
         ).length;
@@ -52,7 +52,7 @@ export class UserService {
     }
   }
 
-  async validateUserAddress(address: string): boolean {
+  async validateUserAddress(address: string): Promise<boolean> {
     try {
       // Basic Stellar address validation
       if (!address || address.length !== 56) {

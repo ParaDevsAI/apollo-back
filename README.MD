@@ -4,8 +4,8 @@ Backend REST API para integração com o smart contract QuestManager no Soroban 
 
 ## 📋 Funcionalidades
 
-- **🔐 Autenticação Passkey**: Login biométrico com Mercury/Zephyr integration
-- **⚡ Transações Gasless**: Smart Wallets e interações automáticas via Zephyr
+- **🔐 Autenticação Passkey**: Login biométrico com Kale passkey-kit
+- **⚡ Smart Wallets**: Carteiras inteligentes na Stellar com assinatura via passkey
 - **📝 Gestão de Quests**: Criar, listar, resolver e cancelar quests
 - **👥 Gestão de Usuários**: Registro, elegibilidade e estatísticas
 - **🌐 Integração Soroban**: Comunicação completa com o smart contract
@@ -99,15 +99,13 @@ npm start
 - `GET /api/v1/users/:address/quests` - Quests do usuário
 - `GET /api/v1/users/:address/stats` - Estatísticas do usuário
 
-### 🔐 Autenticação Passkey (NOVO!)
+### 🔐 Autenticação Kale Passkey (NOVO!)
 
-- `POST /auth/passkey/register/init` - Inicia registro de passkey
-- `POST /auth/passkey/register/complete` - Completa registro e cria Smart Wallet
-- `GET /auth/passkey/challenge` - Gera challenge para login
-- `POST /auth/passkey/login` - Login com passkey + sessão Zephyr
-- `POST /auth/passkey/quest/:id/register` - Registro gasless em quest
-- `POST /auth/passkey/quest/:id/claim-rewards` - Claim gasless de recompensas
-- `GET /auth/session/validate` - Valida sessão Zephyr
+- `POST /auth/passkey/register` - Cria wallet com passkey usando Kale
+- `POST /auth/passkey/connect` - Conecta a wallet existente com passkey
+- `POST /auth/passkey/quest/:id/register` - Registro em quest com passkey
+- `POST /auth/passkey/quest/:id/claim-rewards` - Claim de recompensas com passkey
+- `GET /auth/signers/:contractId` - Lista signatários de um contrato wallet
 
 ### Sistema
 

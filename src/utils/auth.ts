@@ -13,8 +13,8 @@ export interface JwtPayload {
 export class AuthHelper {
   static generateToken(payload: JwtPayload): string {
     return jwt.sign(payload, config.jwtSecret, {
-      expiresIn: config.jwtExpiration,
-    });
+      expiresIn: config.jwtExpiration
+    } as jwt.SignOptions);
   }
 
   static verifyToken(token: string): JwtPayload {

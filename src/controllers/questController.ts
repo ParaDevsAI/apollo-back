@@ -7,8 +7,10 @@ import {
   RegisterUserRequest, 
   MarkEligibleRequest, 
   QuestFilters,
-  AuthenticatedRequest 
+  AuthenticatedRequest,
+  QuestType
 } from '../models';
+import { Quest } from '../models/quest';
 import { validationResult } from 'express-validator';
 
 export class QuestController {
@@ -25,10 +27,11 @@ export class QuestController {
       const result = await questService.createQuest({
         ...questData,
         creator: req.user?.address || '',
+        quest_type: questData.quest_type as QuestType,
       });
 
       if (result.success) {
-        return ResponseHelper.success(res, { quest_id: result.result }, 'Quest created successfully');
+        return ResponseHelper.success(res, { quest_id: result.questId }, 'Quest created successfully');
       } else {
         return ResponseHelper.error(res, result.error || 'Failed to create quest');
       }
@@ -50,13 +53,13 @@ export class QuestController {
 
         // Apply filters
         if (filters.status) {
-          quests = quests.filter(quest => quest.status === filters.status);
+          quests = quests.filter((quest: Quest) => quest.status === filters.status);
         }
         if (filters.quest_type) {
-          quests = quests.filter(quest => quest.quest_type === filters.quest_type);
+          quests = quests.filter((quest: Quest) => quest.quest_type === filters.quest_type);
         }
         if (filters.creator) {
-          quests = quests.filter(quest => quest.creator === filters.creator);
+          quests = quests.filter((quest: Quest) => quest.creator === filters.creator);
         }
 
         // Apply pagination
@@ -96,8 +99,8 @@ export class QuestController {
 
       const result = await questService.getQuest(questId);
 
-      if (result.success) {
-        return ResponseHelper.success(res, result.result);
+      if (result) {
+        return ResponseHelper.success(res, result);
       } else {
         return ResponseHelper.notFound(res, 'Quest not found');
       }

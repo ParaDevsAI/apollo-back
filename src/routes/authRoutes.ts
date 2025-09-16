@@ -34,90 +34,66 @@ const questIdValidation = [
 ];
 
 /**
- * PASSKEY REGISTRATION ROUTES
+ * KALE PASSKEY WALLET ROUTES
  */
 
-// POST /auth/passkey/register/init
-// Inicia o processo de registro de passkey
-router.post('/passkey/register/init', 
-  userIdentifierValidation,
-  authController.initiatePasskeyRegistration
+// POST /auth/passkey/register
+// Create wallet with passkey using Kale PasskeyKit
+router.post('/passkey/register', 
+  [
+    body('appName').optional().isLength({ min: 3, max: 50 }).withMessage('App name must be between 3-50 characters'),
+    body('userName').notEmpty().withMessage('User name is required'),
+    body('rpId').optional().isLength({ min: 3 }).withMessage('RP ID must be at least 3 characters')
+  ],
+  authController.createPasskeyWallet
 );
 
-// POST /auth/passkey/register/complete  
-// Completa o registro de passkey e cria smart contract
-router.post('/passkey/register/complete',
+// POST /auth/passkey/connect
+// Connect to existing wallet with passkey
+router.post('/passkey/connect',
   [
-    ...sessionIdValidation,
-    ...passkeyResponseValidation
+    body('keyId').optional().isString().withMessage('Key ID must be a string'),
+    body('contractId').optional().isLength({ min: 56, max: 56 }).withMessage('Contract ID must be 56 characters'),
+    body('rpId').optional().isString().withMessage('RP ID must be a string')
   ],
-  authController.completePasskeyRegistration
+  authController.connectPasskeyWallet
 );
 
 /**
- * PASSKEY AUTHENTICATION ROUTES
- */
-
-// GET /auth/passkey/challenge
-// Gera challenge para autenticação
-router.get('/passkey/challenge',
-  [
-    query('contractAddress')
-      .optional()
-      .isLength({ min: 56, max: 56 })
-      .withMessage('Contract address must be 56 characters if provided')
-  ],
-  authController.getAuthenticationChallenge
-);
-
-// POST /auth/passkey/login
-// Autentica usuário com passkey e cria sessão Zephyr
-router.post('/passkey/login',
-  [
-    ...passkeyResponseValidation,
-    body('contractAddress')
-      .optional()
-      .isLength({ min: 56, max: 56 })
-      .withMessage('Contract address must be 56 characters if provided')
-  ],
-  authController.loginWithPasskey
-);
-
-/**
- * ZEPHYR TRANSACTION ROUTES (Passkey-powered)
+ * KALE PASSKEY TRANSACTION ROUTES
  */
 
 // POST /auth/passkey/quest/:questId/register
-// Registra usuário em quest via Zephyr (sem assinaturas manuais)
+// Register for quest using Kale passkey wallet
 router.post('/passkey/quest/:questId/register',
   [
     ...questIdValidation,
-    body('sessionId').notEmpty().withMessage('Zephyr session ID is required')
+    body('contractId').notEmpty().withMessage('Contract ID is required')
   ],
   authController.registerForQuestWithPasskey
 );
 
 // POST /auth/passkey/quest/:questId/claim-rewards
-// Reivindica recompensas via Zephyr
+// Claim rewards using Kale passkey wallet
 router.post('/passkey/quest/:questId/claim-rewards',
   [
     ...questIdValidation,
-    body('sessionId').notEmpty().withMessage('Zephyr session ID is required')
+    body('contractId').notEmpty().withMessage('Contract ID is required')
   ],
   authController.claimRewardsWithPasskey
 );
 
 /**
- * SESSION MANAGEMENT ROUTES
+ * WALLET MANAGEMENT ROUTES
  */
 
-// GET /auth/session/validate
-// Valida sessão Zephyr atual
-router.get('/session/validate',
+// GET /auth/signers/:contractId
+// Get signers for a wallet contract
+router.get('/signers/:contractId',
   [
-    query('sessionId').notEmpty().withMessage('Session ID is required')
+    param('contractId').isLength({ min: 56, max: 56 }).withMessage('Contract ID must be 56 characters')
   ],
-  authController.validateSession
+  authController.getWalletSigners
 );
 
 /**
@@ -125,39 +101,35 @@ router.get('/session/validate',
  */
 
 // GET /auth/info
-// Informações sobre métodos de autenticação disponíveis
+// Information about available authentication methods
 router.get('/info', (req, res) => {
   res.json({
     name: 'Apollo Authentication API',
-    version: '1.0.0',
+    version: '2.0.0',
     supportedMethods: ['passkey', 'wallet', 'jwt'],
     passkeyFeatures: [
-      'Biometric authentication',
-      'Smart wallet creation',
-      'Gasless transactions via Zephyr',
-      'Multi-device support'
+      'Biometric authentication via WebAuthn',
+      'Smart wallet creation on Stellar',
+      'Direct contract transactions',
+      'Multi-device passkey support'
     ],
     endpoints: {
-      registration: {
-        init: 'POST /auth/passkey/register/init',
-        complete: 'POST /auth/passkey/register/complete'
-      },
-      authentication: {
-        challenge: 'GET /auth/passkey/challenge',
-        login: 'POST /auth/passkey/login'
+      wallet: {
+        create: 'POST /auth/passkey/register',
+        connect: 'POST /auth/passkey/connect'
       },
       transactions: {
         questRegister: 'POST /auth/passkey/quest/:questId/register',
         claimRewards: 'POST /auth/passkey/quest/:questId/claim-rewards'
       },
-      session: {
-        validate: 'GET /auth/session/validate'
+      management: {
+        getSigners: 'GET /auth/signers/:contractId'
       }
     },
     integrations: {
-      mercury: 'Passkey management and smart wallet creation',
-      zephyr: 'Gasless transaction execution',
-      stellar: 'Blockchain interaction layer'
+      kale: 'Passkey-kit for smart wallet management',
+      stellar: 'Blockchain and smart contract interaction',
+      webauthn: 'Native browser passkey authentication'
     }
   });
 });
@@ -191,7 +163,7 @@ router.get('/health', async (req, res) => {
     res.status(503).json({
       status: 'unhealthy',
       timestamp: new Date().toISOString(),
-      error: error.message
+      error: (error as Error).message
     });
   }
 });
