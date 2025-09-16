@@ -48,6 +48,7 @@ export class QuestController {
 
       const result = await questService.getActiveQuests();
 
+
       if (result.success) {
         let quests = result.result || [];
 

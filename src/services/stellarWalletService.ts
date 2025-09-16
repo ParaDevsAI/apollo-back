@@ -277,32 +277,133 @@ class StellarWalletService {
   }
 
   /**
-   * Get all active quests
+   * Token symbol mapping for known Stellar assets
+   */
+  private getTokenSymbol(contractOrAsset: string): string {
+    const tokenMap: Record<string, string> = {
+      // Native Stellar
+      'native': 'XLM',
+      'XLM': 'XLM',
+      
+      // Common Stellar tokens (by contract address)
+      'CDLZFC3SYJYDZT7K67VZ75HPJVIEUVNIXF47ZG2FB2RMQQAOBKXN7FRZZ': 'USDC',
+      'CB64D3G7SM2RTH6JSGG34DDTFTQ5CFDKVDZJZSODMCX4NJ2DA2KPP2GT': 'USDT', 
+      'CDCLZROJYSA74I3N2QEGEW4XEWIY4KRZWHJJNIF2CEMEYCSM4H5CNCXD': 'XLM', // Quest contract using XLM
+      
+      // Default fallback
+      'default': 'TOKEN'
+    };
+    
+    return tokenMap[contractOrAsset] || tokenMap['default'];
+  }
+
+  /**
+   * Enhanced retry mechanism with exponential backoff
+   */
+  private async retryOperation<T>(
+    operation: () => Promise<T>, 
+    maxRetries: number = 5, 
+    baseDelayMs: number = 1000
+  ): Promise<T> {
+    let lastError: Error | null = null;
+    
+    for (let attempt = 1; attempt <= maxRetries; attempt++) {
+      try {
+        Logger.debug(`Network operation attempt ${attempt}/${maxRetries}`);
+        return await operation();
+      } catch (error: any) {
+        lastError = error instanceof Error ? error : new Error(String(error));
+        
+        if (attempt === maxRetries) {
+          Logger.error(`All ${maxRetries} attempts failed`);
+          break;
+        }
+        
+        // Check if it's a recoverable network error
+        const isNetworkError = error.message?.includes('ECONNRESET') || 
+                              error.message?.includes('ENOTFOUND') || 
+                              error.message?.includes('ETIMEDOUT') ||
+                              error.message?.includes('timeout') ||
+                              error.message?.includes('ECONNREFUSED');
+        
+        if (isNetworkError) {
+          // Exponential backoff: 1s, 2s, 4s, 8s, 16s
+          const delayMs = baseDelayMs * Math.pow(2, attempt - 1);
+          
+          Logger.warn(`Network error on attempt ${attempt}/${maxRetries}, retrying in ${delayMs}ms...`, {
+            error: error.message,
+            errorCode: error.code
+          });
+          
+          await new Promise(resolve => setTimeout(resolve, delayMs));
+        } else {
+          // Non-recoverable error, don't retry
+          Logger.error('Non-recoverable error, not retrying:', error.message);
+          throw error;
+        }
+      }
+    }
+    
+    throw lastError || new Error('Network operation failed after all retries');
+  }
+
+  /**
+   * Get all active quests with improved network connectivity
    */
   async getActiveQuests(): Promise<any[]> {
     try {
-      const result = await this.simulateContractCall('get_active_quests', []);
+      Logger.info('Attempting to fetch active quests from smart contract...');
+      
+      const result = await this.retryOperation(
+        () => this.simulateContractCall('get_active_quests', []),
+        5, // Increased retries
+        2000 // Increased delay
+      );
       
       // Convert ScVal to native with special handling for BigInt values
       const quests = this.convertScValToNativeWithBigIntHandling(result);
       
       // Ensure all BigInt values are serializable as strings
-      const serializableQuests = this.serializeBigIntForJson(quests);
+      let serializableQuests = this.serializeBigIntForJson(quests);
       
-      Logger.info(`Retrieved ${Array.isArray(serializableQuests) ? serializableQuests.length : 0} active quests from smart contract`);
+      // Enhance quest data with token symbols
+      if (Array.isArray(serializableQuests)) {
+        serializableQuests = serializableQuests.map((quest: any) => {
+          const tokenSymbol = this.getTokenSymbol(quest.reward_token || 'native');
+          
+          return {
+            ...quest,
+            reward_token: tokenSymbol,
+            title: quest.title || `Quest #${quest.id}`,
+            description: quest.description || `Complete this quest to earn rewards`,
+            end_timestamp: quest.end_timestamp
+          };
+        });
+      }
+      
+      Logger.info(`Successfully retrieved ${Array.isArray(serializableQuests) ? serializableQuests.length : 0} active quests from smart contract`);
       return Array.isArray(serializableQuests) ? serializableQuests : [];
+      
     } catch (error: any) {
       Logger.error('Failed to get active quests from smart contract:', error);
       
-      // If it's a BigInt serialization error, log it specifically
-      if (error.message?.includes('BigInt')) {
-        Logger.error('BigInt conversion error - this is a known issue with Stellar SDK ScVal conversion');
-        Logger.error('Raw contract response was successful but conversion failed');
+      // Detailed network error analysis
+      if (error.message?.includes('ECONNRESET')) {
+        Logger.error('Network connection reset - Stellar RPC server may be under heavy load');
+        Logger.error('Try again in a few moments or check network connectivity');
+      } else if (error.message?.includes('ENOTFOUND')) {
+        Logger.error('DNS resolution failed - check network connectivity');
+      } else if (error.message?.includes('timeout')) {
+        Logger.error('Request timed out - Stellar RPC server may be slow');
+      } else if (error.message?.includes('BigInt')) {
+        Logger.error('Data conversion error - contract returned valid data but conversion failed');
+      } else {
+        Logger.error('Unexpected error type:', error.message);
       }
       
-      Logger.warn('Returning empty quest list due to contract call failure');
+      Logger.warn('Unable to fetch quest data from smart contract - returning empty list');
       
-      // Return empty array instead of throwing error to allow frontend to handle gracefully
+      // Return empty array to allow frontend to handle gracefully
       return [];
     }
   }
@@ -490,12 +591,21 @@ class StellarWalletService {
         .build();
 
       // For Soroban contract calls, we need to use the RPC server
-      // Create a proper Soroban RPC server instance
+      // Create a proper Soroban RPC server instance with timeout configuration
       const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
-      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl, {
+        allowHttp: rpcUrl.includes('localhost') || rpcUrl.includes('127.0.0.1'),
+      });
       
-      // Simulate the transaction (read-only call)
-      const response = await sorobanServer.simulateTransaction(transaction);
+      Logger.debug(`Making contract call to: ${rpcUrl}`);
+      
+      // Simulate the transaction with timeout handling (read-only call)
+      const response = await Promise.race([
+        sorobanServer.simulateTransaction(transaction),
+        new Promise((_, reject) => 
+          setTimeout(() => reject(new Error('Contract call timeout after 10 seconds')), 10000)
+        )
+      ]) as any;
       
       // Check if simulation was successful
       if (StellarSdk.rpc.Api.isSimulationError(response)) {
