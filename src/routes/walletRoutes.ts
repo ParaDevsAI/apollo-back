@@ -121,4 +121,14 @@ router.get('/wallet/quest/:questId/status',
   (req: Request, res: Response) => authController.getQuestStatus(req, res)
 );
 
+// POST /auth/wallet/quest/:questId/claim
+// Claim rewards for a completed quest (admin action)
+router.post('/wallet/quest/:questId/claim',
+  [
+    param('questId').isInt({ min: 1 }).withMessage('Quest ID must be a positive integer'),
+    body('publicKey').notEmpty().withMessage('Public key is required')
+  ],
+  (req: Request, res: Response) => authController.claimQuestRewards(req, res)
+);
+
 export default router;

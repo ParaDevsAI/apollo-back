@@ -236,10 +236,7 @@ export class AuthController {
 
       Logger.info('Building claim rewards transaction', { questId, publicKey });
 
-      const transactionXdr = await this.stellarWalletService.buildClaimRewardsTransaction(
-        publicKey,
-        questId
-      );
+      const transactionXdr = await this.stellarWalletService.buildClaimRewardsTransaction(questId);
 
       return ResponseHelper.success(res, {
         transactionXdr,
@@ -362,59 +359,7 @@ export class AuthController {
     }
   }
 
-  /**
-   * POST /auth/wallet/quest/:questId/verify
-   * Verificar se o usuário completou a tarefa e marcar como elegível
-   */
-  async verifyQuestCompletion(req: Request, res: Response): Promise<Response> {
-    try {
-      const errors = validationResult(req);
-      if (!errors.isEmpty()) {
-        return ResponseHelper.error(res, 'Validation failed', 400);
-      }
 
-      const questId = parseInt(req.params.questId);
-      const { publicKey } = req.body;
-
-      // Check if user is registered first
-      const isRegistered = await this.stellarWalletService.isUserRegistered(questId, publicKey);
-      if (!isRegistered) {
-        return ResponseHelper.error(res, 'User is not registered for this quest', 400);
-      }
-
-      // Get quest info to determine verification type
-      const questInfo = await this.stellarWalletService.getQuestInfo(questId);
-      
-      // TODO: Implement actual task verification logic based on quest type
-      // For now, simulate verification
-      const isTaskCompleted = await this.verifyUserTask(questId, publicKey, questInfo.quest_type);
-
-      if (isTaskCompleted) {
-        // Mark user as eligible
-        await this.stellarWalletService.markUserEligible(questId, publicKey);
-        
-        return ResponseHelper.success(res, {
-          questId,
-          userAddress: publicKey,
-          isEligible: true,
-          taskCompleted: true,
-          timestamp: new Date().toISOString()
-        }, 'User marked as eligible for quest rewards');
-      } else {
-        return ResponseHelper.success(res, {
-          questId,
-          userAddress: publicKey,
-          isEligible: false,
-          taskCompleted: false,
-          timestamp: new Date().toISOString()
-        }, 'User has not completed the required task yet');
-      }
-
-    } catch (error: unknown) {
-      Logger.error(`Failed to verify quest completion for quest ${req.params.questId}`);
-      return ResponseHelper.error(res, (error as Error).message, 500);
-    }
-  }
 
   /**
    * GET /auth/wallet/quest/:questId/status
@@ -512,6 +457,126 @@ export class AuthController {
     } catch (error: any) {
       Logger.error('Task verification failed:', error);
       return false;
+    }
+  }
+
+  /**
+   * Verify that a user has completed quest requirements
+   */
+  async verifyQuestCompletion(req: Request, res: Response): Promise<Response> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        const details = errors.array().map((e: any) => ({ param: e.param, msg: e.msg }));
+        Logger.warn('Validation failed for verifyQuestCompletion', { details });
+        return res.status(400).json({ success: false, error: 'Validation failed', details, timestamp: new Date().toISOString() });
+      }
+
+      const questId = Number(req.params.questId);
+      const { publicKey } = req.body;
+
+      if (isNaN(questId)) {
+        return ResponseHelper.error(res, 'Invalid quest ID', 400);
+      }
+
+      Logger.info('Verifying quest completion (MOCK for demo)', { questId, publicKey });
+
+      // MOCK IMPLEMENTATION FOR DEMO
+      // Simulate verification process
+      await new Promise(resolve => setTimeout(resolve, 1000)); // Simulate processing delay
+      
+      // Mock success response
+      const mockTransactionHash = `mock_verify_tx_${questId}_${Date.now()}`;
+      
+      Logger.info('Mock verification completed successfully', { 
+        questId, 
+        publicKey,
+        transactionHash: mockTransactionHash 
+      });
+
+      return ResponseHelper.success(res, {
+        verified: true,
+        questId,
+        publicKey,
+        transactionHash: mockTransactionHash,
+        mock: true, // Indicate this is a mock response
+        instructions: {
+          message: '✅ Quest completion verified successfully! (Demo Mode)',
+          benefit: 'You are now eligible for rewards when the quest ends',
+          nextSteps: [
+            'Wait for quest to end',
+            'Claim your rewards if you are selected as a winner',
+            'Check quest status in your profile'
+          ]
+        }
+      });
+
+    } catch (error: any) {
+      Logger.error('Quest verification failed', error);
+      return ResponseHelper.error(res, `Quest verification failed: ${error.message}`, 500);
+    }
+  }
+
+  /**
+   * Claim rewards for a completed quest
+   */
+  async claimQuestRewards(req: Request, res: Response): Promise<Response> {
+    try {
+      const errors = validationResult(req);
+      if (!errors.isEmpty()) {
+        const details = errors.array().map((e: any) => ({ param: e.param, msg: e.msg }));
+        Logger.warn('Validation failed for claimQuestRewards', { details });
+        return res.status(400).json({ success: false, error: 'Validation failed', details, timestamp: new Date().toISOString() });
+      }
+
+      const questId = Number(req.params.questId);
+      const { publicKey } = req.body;
+
+      if (isNaN(questId)) {
+        return ResponseHelper.error(res, 'Invalid quest ID', 400);
+      }
+
+      Logger.info('Processing quest reward claim', { questId, publicKey });
+
+      // Get quest details to validate status
+      const quest = await this.stellarWalletService.getQuestInfo(questId);
+      if (!quest) {
+        return ResponseHelper.error(res, 'Quest not found', 404);
+      }
+
+      // For demo: mock the claim functionality
+      Logger.info('Using demo claim (mocked) for active quest', { questId, isActive: quest.is_active, publicKey });
+
+      // Mock delay to simulate processing
+      await new Promise(resolve => setTimeout(resolve, 1500));
+
+      // Mock successful claim result
+      const result = {
+        success: true,
+        claimed: true,
+        questId,
+        transactionHash: `mock_tx_${questId}_${Date.now()}`,
+        message: 'Quest rewards claimed successfully (demo mode)!'
+      };
+
+      return ResponseHelper.success(res, {
+        claimed: true,
+        questId,
+        transactionHash: result.transactionHash,
+        instructions: {
+          message: result.message,
+          benefit: 'Demo rewards claimed successfully',
+          nextSteps: [
+            'In production: Check your wallet for received rewards',
+            'Participate in more quests',
+            'Share your success with the community'
+          ]
+        }
+      });
+
+    } catch (error: any) {
+      Logger.error('Quest reward claim failed', error);
+      return ResponseHelper.error(res, `Quest reward claim failed: ${error.message}`, 500);
     }
   }
 }

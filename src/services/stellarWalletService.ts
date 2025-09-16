@@ -129,23 +129,17 @@ class StellarWalletService {
           
           // Wait for transaction confirmation
           let attempts = 0;
-          const maxAttempts = 15;
+          const maxAttempts = 30; // Increased from 15 to 30 (60 seconds total)
           
           while (attempts < maxAttempts) {
             await new Promise(resolve => setTimeout(resolve, 2000)); // Wait 2 seconds
             
             try {
               const txResult = await sorobanServer.getTransaction(result.hash);
-              Logger.info(`Transaction check attempt ${attempts + 1}`, {
-                status: txResult.status,
-                hash: result.hash
-              });
+              Logger.info(`Transaction check attempt ${attempts + 1}/${maxAttempts} - Status: ${txResult.status} - Hash: ${result.hash} - Time: ${(attempts + 1) * 2}s`);
               
               if (txResult.status === 'SUCCESS') {
-                Logger.info('Soroban transaction confirmed successfully', {
-                  hash: result.hash,
-                  status: txResult.status
-                });
+                Logger.info(`Soroban transaction confirmed successfully - Hash: ${result.hash} - Status: ${txResult.status}`);
                 
                 return {
                   success: true,
@@ -153,13 +147,14 @@ class StellarWalletService {
                   createdAt: new Date()
                 };
               } else if (txResult.status === 'FAILED') {
-                const errorDetails = txResult.resultXdr || 'Transaction failed';
+                Logger.error(`Transaction failed with status: ${txResult.status}`);
+                const errorDetails = txResult.resultXdr || JSON.stringify(txResult);
                 throw new Error(`Soroban transaction failed after confirmation: ${errorDetails}`);
               }
               
               attempts++;
-            } catch (error) {
-              Logger.warn(`Error checking transaction status: ${error}`);
+            } catch (error: any) {
+              Logger.warn(`Error checking transaction status (attempt ${attempts + 1}/${maxAttempts}): ${error.message || error}`);
               attempts++;
             }
           }
@@ -280,40 +275,6 @@ class StellarWalletService {
         errorType: error?.constructor?.name,
         errorMessage: error?.message
       });
-      throw new Error(`Failed to build transaction: ${error.message}`);
-    }
-  }
-
-  async buildClaimRewardsTransaction(userAddress: string, questId: number): Promise<string> {
-    try {
-      // First check if user is actually a winner
-      const isWinner = await this.checkIfUserIsWinner(questId, userAddress);
-      if (!isWinner) {
-        throw new Error('User is not a winner for this quest');
-      }
-
-      const account = await this.server.loadAccount(userAddress);
-      const contract = new StellarSdk.Contract(this.contractAddress);
-      
-      // Build operation to call contract.distribute_rewards(quest_id)
-      // Note: This should only be called by winners and admin validation should happen on contract side
-      const operation = contract.call(
-        'distribute_rewards',
-        ...[StellarSdk.nativeToScVal(questId, { type: 'u64' })]
-      );
-
-      const transaction = new StellarSdk.TransactionBuilder(account, {
-        fee: StellarSdk.BASE_FEE,
-        networkPassphrase: this.networkPassphrase,
-      })
-        .addOperation(operation)
-        .setTimeout(300)
-        .build();
-
-      Logger.info(`Built claim rewards transaction for user ${userAddress} and quest ${questId}`);
-      return transaction.toXDR();
-    } catch (error: any) {
-      Logger.error('Failed to build claim rewards transaction:', error);
       throw new Error(`Failed to build transaction: ${error.message}`);
     }
   }
@@ -890,6 +851,397 @@ class StellarWalletService {
         total_reward_pool: 5000
       }
     ];
+  }
+
+  /**
+   * Build transaction to mark user as eligible for a quest
+   */
+  async buildVerifyQuestTransaction(userAddress: string, questId: number): Promise<string> {
+    try {
+      Logger.info('Building verify quest transaction', {
+        userAddress,
+        questId,
+        contractAddress: this.contractAddress,
+        networkPassphrase: this.networkPassphrase
+      });
+
+      if (!this.adminKeypair) {
+        throw new Error('Admin keypair not configured');
+      }
+      const account = await this.server.loadAccount(this.adminKeypair.publicKey());
+      Logger.info('Admin account loaded for verification', {
+        accountId: account.accountId(),
+        sequenceNumber: account.sequenceNumber()
+      });
+
+      const contract = new StellarSdk.Contract(this.contractAddress);
+      
+      // Build operation to call contract.mark_user_eligible(quest_id, user_address)  
+      const operation = contract.call(
+        'mark_user_eligible',
+        ...[
+          StellarSdk.nativeToScVal(questId, { type: 'u64' }),
+          new StellarSdk.Address(userAddress).toScVal()
+        ]
+      );
+
+      // Build initial transaction for simulation
+      const initialTransaction = new StellarSdk.TransactionBuilder(account, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(operation)
+        .setTimeout(300)
+        .build();
+
+      // Simulate transaction to get required resources
+      const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      
+      Logger.info('Simulating verify quest transaction for resources', {
+        rpcUrl,
+        operationType: 'mark_user_eligible'
+      });
+      
+      const simulation = await sorobanServer.simulateTransaction(initialTransaction);
+      
+      if (StellarSdk.rpc.Api.isSimulationError(simulation)) {
+        Logger.error('Verify simulation failed: ' + simulation.error);
+        throw new Error(`Verify transaction simulation failed: ${simulation.error}`);
+      }
+
+      Logger.info('Verify simulation successful', {
+        minResourceFee: simulation.minResourceFee
+      });
+
+      // Build final transaction with simulation results
+      const assembledTransaction = StellarSdk.rpc.assembleTransaction(
+        initialTransaction,
+        simulation
+      ).build();
+
+      const xdr = assembledTransaction.toXDR();
+      Logger.info('Verify quest transaction built successfully', {
+        userAddress,
+        questId,
+        xdrLength: xdr.length,
+        operationCount: assembledTransaction.operations.length,
+        fee: assembledTransaction.fee,
+        resourceFee: simulation.minResourceFee
+      });
+      
+      return xdr;
+    } catch (error: any) {
+      Logger.error('Failed to build verify quest transaction', error);
+      Logger.info('Build verify transaction error details', {
+        userAddress,
+        questId,
+        contractAddress: this.contractAddress,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Submit verify quest transaction (marks user as eligible)
+   */
+  async verifyQuestCompletion(userAddress: string, questId: number): Promise<any> {
+    try {
+      Logger.info('Starting verify quest completion process', {
+        userAddress,
+        questId
+      });
+
+      // Build the transaction
+      const transactionXdr = await this.buildVerifyQuestTransaction(userAddress, questId);
+      
+      // Sign with admin keypair (since only admin can mark users eligible)
+      const transaction = StellarSdk.TransactionBuilder.fromXDR(transactionXdr, this.networkPassphrase);
+      if (!this.adminKeypair) {
+        throw new Error('Admin keypair not configured');
+      }
+      transaction.sign(this.adminKeypair);
+
+      // Submit the signed transaction
+      const result = await this.submitSignedTransaction(transaction.toXDR());
+
+      Logger.info('Verify quest transaction submitted successfully', {
+        userAddress,
+        questId,
+        transactionHash: result.hash
+      });
+
+      return {
+        success: true,
+        verified: true,
+        questId,
+        userAddress,
+        transactionHash: result.hash,
+        message: 'Quest completion verified successfully!'
+      };
+
+    } catch (error: any) {
+      Logger.error('Failed to verify quest completion', error);
+      throw new Error(`Verify quest completion failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Build transaction to distribute rewards for demo (allows active quests)
+   */
+  async buildClaimRewardsDemoTransaction(questId: number, winner: string): Promise<string> {
+    try {
+      Logger.info('Building claim rewards demo transaction', {
+        questId,
+        winner,
+        contractAddress: this.contractAddress,
+        networkPassphrase: this.networkPassphrase
+      });
+
+      if (!this.adminKeypair) {
+        throw new Error('Admin keypair not configured');
+      }
+      const account = await this.server.loadAccount(this.adminKeypair.publicKey());
+      Logger.info('Admin account loaded for rewards distribution', {
+        accountId: account.accountId(),
+        sequenceNumber: account.sequenceNumber()
+      });
+
+      const contract = new StellarSdk.Contract(this.contractAddress);
+      
+      // Build operation to call contract.distribute_rewards_demo(quest_id, winner)  
+      const operation = contract.call(
+        'distribute_rewards_demo',
+        ...[
+          StellarSdk.nativeToScVal(questId, { type: 'u64' }),
+          StellarSdk.Address.fromString(winner).toScVal()
+        ]
+      );
+
+      // Build initial transaction for simulation
+      const initialTransaction = new StellarSdk.TransactionBuilder(account, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(operation)
+        .setTimeout(300)
+        .build();
+
+      // Simulate transaction to get required resources
+      const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      
+      Logger.info('Simulating demo claim rewards transaction for resources', {
+        rpcUrl,
+        operationType: 'distribute_rewards_demo'
+      });
+      
+      const simulation = await sorobanServer.simulateTransaction(initialTransaction);
+      
+      if (StellarSdk.rpc.Api.isSimulationError(simulation)) {
+        Logger.error('Demo claim simulation failed: ' + simulation.error);
+        throw new Error(`Demo claim transaction simulation failed: ${simulation.error}`);
+      }
+
+      Logger.info('Demo claim simulation successful', {
+        minResourceFee: simulation.minResourceFee
+      });
+
+      // Build final transaction with simulation results
+      const assembledTransaction = StellarSdk.rpc.assembleTransaction(
+        initialTransaction,
+        simulation
+      ).build();
+
+      const xdr = assembledTransaction.toXDR();
+      Logger.info('Demo claim rewards transaction built successfully', {
+        questId,
+        winner,
+        xdrLength: xdr.length
+      });
+
+      return xdr;
+
+    } catch (error: any) {
+      Logger.error('Failed to build demo claim rewards transaction', error);
+      throw new Error(`Build demo claim transaction failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Build transaction to distribute rewards for a quest
+   */
+  async buildClaimRewardsTransaction(questId: number): Promise<string> {
+    try {
+      Logger.info('Building claim rewards transaction', {
+        questId,
+        contractAddress: this.contractAddress,
+        networkPassphrase: this.networkPassphrase
+      });
+
+      if (!this.adminKeypair) {
+        throw new Error('Admin keypair not configured');
+      }
+      const account = await this.server.loadAccount(this.adminKeypair.publicKey());
+      Logger.info('Admin account loaded for rewards distribution', {
+        accountId: account.accountId(),
+        sequenceNumber: account.sequenceNumber()
+      });
+
+      const contract = new StellarSdk.Contract(this.contractAddress);
+      
+      // Build operation to call contract.distribute_rewards(quest_id)  
+      const operation = contract.call(
+        'distribute_rewards',
+        ...[
+          StellarSdk.nativeToScVal(questId, { type: 'u64' })
+        ]
+      );
+
+      // Build initial transaction for simulation
+      const initialTransaction = new StellarSdk.TransactionBuilder(account, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(operation)
+        .setTimeout(300)
+        .build();
+
+      // Simulate transaction to get required resources
+      const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      
+      Logger.info('Simulating claim rewards transaction for resources', {
+        rpcUrl,
+        operationType: 'distribute_rewards'
+      });
+      
+      const simulation = await sorobanServer.simulateTransaction(initialTransaction);
+      
+      if (StellarSdk.rpc.Api.isSimulationError(simulation)) {
+        Logger.error('Claim simulation failed: ' + simulation.error);
+        throw new Error(`Claim transaction simulation failed: ${simulation.error}`);
+      }
+
+      Logger.info('Claim simulation successful', {
+        minResourceFee: simulation.minResourceFee
+      });
+
+      // Build final transaction with simulation results
+      const assembledTransaction = StellarSdk.rpc.assembleTransaction(
+        initialTransaction,
+        simulation
+      ).build();
+
+      const xdr = assembledTransaction.toXDR();
+      Logger.info('Claim rewards transaction built successfully', {
+        questId,
+        xdrLength: xdr.length,
+        operationCount: assembledTransaction.operations.length,
+        fee: assembledTransaction.fee,
+        resourceFee: simulation.minResourceFee
+      });
+      
+      return xdr;
+    } catch (error: any) {
+      Logger.error('Failed to build claim rewards transaction', error);
+      Logger.info('Build claim transaction error details', {
+        questId,
+        contractAddress: this.contractAddress,
+        error: error.message
+      });
+      throw error;
+    }
+  }
+
+  /**
+   * Resolve quest and distribute rewards (DEMO VERSION - MOCKED)
+   */
+  async claimQuestRewards(questId: number, userAddress?: string): Promise<any> {
+    try {
+      Logger.info('Starting MOCK claim quest rewards process for demo', {
+        questId,
+        userAddress
+      });
+
+      // MOCK IMPLEMENTATION FOR DEMO
+      // Simulate processing time
+      await new Promise(resolve => setTimeout(resolve, 2000));
+
+      const mockTransactionHash = `mock_claim_${questId}_${Date.now()}`;
+
+      Logger.info('MOCK claim quest rewards completed successfully', {
+        questId,
+        userAddress,
+        mockTransactionHash
+      });
+
+      return {
+        success: true,
+        claimed: true,
+        questId,
+        transactionHash: mockTransactionHash,
+        message: 'Quest rewards distributed successfully! (Demo Mode)'
+      };
+
+    } catch (error: any) {
+      Logger.error('Failed to mock claim quest rewards', error);
+      throw new Error(`Mock claim quest rewards failed: ${error.message}`);
+    }
+  }
+
+  /**
+   * Build transaction to resolve a quest (finalize and select winners)
+   */
+  async buildResolveQuestTransaction(questId: number): Promise<string> {
+    try {
+      Logger.info('Building resolve quest transaction', {
+        questId,
+        contractAddress: this.contractAddress
+      });
+
+      if (!this.adminKeypair) {
+        throw new Error('Admin keypair not configured');
+      }
+      const account = await this.server.loadAccount(this.adminKeypair.publicKey());
+      const contract = new StellarSdk.Contract(this.contractAddress);
+      
+      const operation = contract.call(
+        'resolve_quest',
+        ...[
+          StellarSdk.nativeToScVal(questId, { type: 'u64' })
+        ]
+      );
+
+      const initialTransaction = new StellarSdk.TransactionBuilder(account, {
+        fee: StellarSdk.BASE_FEE,
+        networkPassphrase: this.networkPassphrase,
+      })
+        .addOperation(operation)
+        .setTimeout(300)
+        .build();
+
+      // Simulate transaction
+      const rpcUrl = config.stellar?.rpcUrl || 'https://soroban-testnet.stellar.org:443';
+      const sorobanServer = new StellarSdk.rpc.Server(rpcUrl);
+      const simulation = await sorobanServer.simulateTransaction(initialTransaction);
+      
+      if (StellarSdk.rpc.Api.isSimulationError(simulation)) {
+        Logger.error('Resolve simulation failed: ' + simulation.error);
+        throw new Error(`Resolve transaction simulation failed: ${simulation.error}`);
+      }
+
+      const assembledTransaction = StellarSdk.rpc.assembleTransaction(
+        initialTransaction,
+        simulation
+      ).build();
+
+      return assembledTransaction.toXDR();
+    } catch (error: any) {
+      Logger.error('Failed to build resolve quest transaction', error);
+      throw error;
+    }
   }
 }
 
