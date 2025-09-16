@@ -91,6 +91,14 @@ router.get('/wallet/health', (req: Request, res: Response) => authController.wal
 router.get('/wallet/info', (req: Request, res: Response) => authController.getWalletServiceInfo(req, res));
 
 /**
+ * QUEST INFORMATION ROUTES
+ */
+
+// GET /auth/wallet/quests/active
+// Obter todas as quests ativas disponíveis para registro
+router.get('/wallet/quests/active', (req: Request, res: Response) => authController.getActiveQuests(req, res));
+
+/**
  * QUEST VERIFICATION AND STATUS ROUTES
  */
 

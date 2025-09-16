@@ -417,6 +417,27 @@ export class AuthController {
   }
 
   /**
+   * GET /auth/wallet/quests/active
+   * Get all active quests available for registration
+   */
+  async getActiveQuests(req: Request, res: Response): Promise<Response> {
+    try {
+      // Get active quests from smart contract via service
+      const activeQuests = await this.stellarWalletService.getActiveQuests();
+      
+      return ResponseHelper.success(res, {
+        quests: activeQuests,
+        count: activeQuests.length,
+        timestamp: new Date().toISOString()
+      }, 'Active quests retrieved successfully');
+
+    } catch (error: unknown) {
+      Logger.error('Failed to get active quests');
+      return ResponseHelper.error(res, (error as Error).message, 500);
+    }
+  }
+
+  /**
    * Private helper method to verify user task completion
    */
   private async verifyUserTask(questId: number, userAddress: string, questType: any): Promise<boolean> {
