@@ -335,7 +335,7 @@ export class AuthController {
     try {
       const errors = validationResult(req);
       if (!errors.isEmpty()) {
-        return ResponseHelper.validation(res, errors.array());
+        return ResponseHelper.error(res, 'Validation failed', 400);
       }
 
       const questId = parseInt(req.params.questId);
@@ -376,7 +376,7 @@ export class AuthController {
       }
 
     } catch (error: unknown) {
-      Logger.error(`Failed to verify quest completion for quest ${req.params.questId}:`, error);
+      Logger.error(`Failed to verify quest completion for quest ${req.params.questId}`);
       return ResponseHelper.error(res, (error as Error).message, 500);
     }
   }
@@ -411,7 +411,7 @@ export class AuthController {
       }, 'Quest status retrieved successfully');
 
     } catch (error: unknown) {
-      Logger.error(`Failed to get quest status for quest ${req.params.questId}:`, error);
+      Logger.error(`Failed to get quest status for quest ${req.params.questId}`);
       return ResponseHelper.error(res, (error as Error).message, 500);
     }
   }

@@ -90,4 +90,27 @@ router.get('/wallet/health', (req: Request, res: Response) => authController.wal
 // Obter informações sobre o serviço de carteira
 router.get('/wallet/info', (req: Request, res: Response) => authController.getWalletServiceInfo(req, res));
 
+/**
+ * QUEST VERIFICATION AND STATUS ROUTES
+ */
+
+// POST /auth/wallet/quest/:questId/verify
+// Verificar se o usuário completou a tarefa
+router.post('/wallet/quest/:questId/verify',
+  [
+    param('questId').isInt({ min: 1 }).withMessage('Quest ID must be a positive integer'),
+    body('publicKey').notEmpty().withMessage('Public key is required')
+  ],
+  (req: Request, res: Response) => authController.verifyQuestCompletion(req, res)
+);
+
+// GET /auth/wallet/quest/:questId/status
+// Obter o status do usuário em uma quest
+router.get('/wallet/quest/:questId/status',
+  [
+    param('questId').isInt({ min: 1 }).withMessage('Quest ID must be a positive integer')
+  ],
+  (req: Request, res: Response) => authController.getQuestStatus(req, res)
+);
+
 export default router;
